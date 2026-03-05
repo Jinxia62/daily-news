@@ -1,0 +1,105 @@
+name: Daily News
+
+on:
+  schedule:
+    - cron: '0 0 * * *'  # 每天 UTC 0 点 = 北京时间 8 点
+  workflow_dispatch:  # 允许手动触发测试
+
+jobs:
+  send-news:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v3
+      
+      - name: Setup Node.js
+        uses: actions/setup-node@v3
+        with:
+          node-version: '18'
+      
+      - name: Install dependencies
+        run: |
+          npm init -y
+          npm install nodemailer axios fast-xml-parser
+      
+      - name: Create script
+        run: |
+          cat > send-news.js << 'EOF'
+          const nodemailer = require('nodemailer');
+          const axios = require('axios');
+          const { XMLParser } = require('fast-xml-parser');
+          
+          const xmlParser = new XMLParser({ ignoreAttributes: true, isArray: (tagName) => ['item', 'entry'].includes(tagName) });
+          
+          const config = {
+            smtp: {
+              host: 'smtp.qq.com',
+              port: 465,
+              secure: true,
+              auth: {
+                user: process.env.EMAIL_USER,
+                pass: process.env.EMAIL_PASS
+              }
+            },
+            from: process.env.EMAIL_USER,
+            to: process.env.EMAIL_TO,
+            newsSources: {
+              china: [
+                {name: '新华网', rss: 'http://www.xinhuanet.com/rss/world.xml'},
+                {name: '人民网', rss: 'http://rss.people.com.cn/rmrb/2d09e656329c4089a7f4370cd38d10f8.rss'},
+                {name: '澎湃新闻', rss: 'https://rss.thepaper.cn/rss_paper.html'},
+                {name: '观察者网', rss: 'https://www.guancha.cn/rss.xml'}
+              ],
+              world: [
+                {name: 'Reuters', rss: 'https://www.reuters.com/rssFeed/worldNews'},
+                {name: 'BBC', rss: 'http://feeds.bbci.co.uk/news/world/rss.xml'},
+                {name: 'CNN', rss: 'http://rss.cnn.com/rss/edition_world.rss'}
+              ]
+            }
+          };
+          
+          async function fetchRSS(source) {
+            try {
+              const response = await axios.get(source.rss, { timeout: 5000 });
+              const parsed = xmlParser.parse(response.data);
+              const items = parsed.rss?.channel?.item || parsed.feed?.entry || [];
+              return items.slice(0, 3).map(item => ({
+                title: item.title || '无标题',
+                link: item.link || source.rss,
+                source: source.name
+              }));
+            } catch (error) {
+              console.error(`获取 ${source.name} 失败:`, error.message);
+              return [];
+            }
+          }
+          
+          async function main() {
+            const chinaNews = (await Promise.all(config.newsSources.china.map(fetchRSS))).flat().slice(0, 10);
+            const worldNews = (await Promise.all(config.newsSources.world.map(fetchRSS))).flat().slice(0, 10);
+            
+            const date = new Date().toISOString().split('T')[0];
+            let content = `【每日热点新闻】${date}\n\n🇨🇳 中国热点\n`;
+            chinaNews.forEach((n, i) => content += `${i+1}. ${n.title} (${n.source})\n`);
+            content += `\n🌍 世界热点\n`;
+            worldNews.forEach((n, i) => content += `${i+1}. ${n.title} (${n.source})\n`);
+            
+            const transporter = nodemailer.createTransport(config.smtp);
+            await transporter.sendMail({
+              from: `"小金子" <${config.from}>`,
+              to: config.to,
+              subject: `【每日热点新闻】${date}`,
+              text: content
+            });
+            
+            console.log('✅ 发送成功！');
+          }
+          
+          main().catch(console.error);
+          EOF
+      
+      - name: Send News
+        env:
+          EMAIL_USER: ${{ secrets.EMAIL_USER }}
+          EMAIL_PASS: ${{ secrets.EMAIL_PASS }}
+          EMAIL_TO: ${{ secrets.EMAIL_TO }}
+        run: node send-news.js
