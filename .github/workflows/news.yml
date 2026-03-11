@@ -21,7 +21,9 @@ jobs:
           node-version: '20'
 
       - name: Install dependencies
-        run: npm install -g axios cheerio fast-xml-parser nodemailer
+        run: |
+          npm install --save axios cheerio fast-xml-parser nodemailer
+          npm install -g nodemailer
 
       - name: Run enhanced intelligence aggregator
         env:
