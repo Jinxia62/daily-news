@@ -5,11 +5,11 @@ on:
     # 北京时间每天上午10点运行 (UTC+8)
     - cron: '0 2 * * *'
   workflow_dispatch:
-    # 允许手动触发
 
 jobs:
   daily-news:
     runs-on: ubuntu-latest
+    timeout-minutes: 15
 
     steps:
       - name: Checkout repository
@@ -22,7 +22,7 @@ jobs:
 
       - name: Install dependencies
         run: |
-          npm install --save axios cheerio fast-xml-parser nodemailer
+          npm install --save axios cheerio fast-xml-parser nodemailer html-to-text
           npm install -g nodemailer
 
       - name: Run enhanced intelligence aggregator
@@ -30,6 +30,7 @@ jobs:
           EMAIL_USER: ${{ secrets.EMAIL_USER }}
           EMAIL_PASS: ${{ secrets.EMAIL_PASS }}
           EMAIL_TO: ${{ secrets.EMAIL_TO }}
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
         run: node enhanced-intelligence-aggregator.js
 
       - name: Keep alive on failure
